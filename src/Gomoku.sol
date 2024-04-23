@@ -23,6 +23,7 @@ contract Gomoku {
     event PlayerJoined(uint256 gameId, address player); // 玩家加入遊戲事件
     event MoveMade(uint256 gameId, uint8 x, uint8 y, Stone thisColor);
     event GameEnded(uint256 gameId, address winner); // 遊戲結束事件
+    event RefundClaimed(uint256 gameId, address player1, address player2, uint256 amount); // 賭注退款事件
 
     struct Game {
         address black; // 黑棋玩家位址
@@ -154,6 +155,35 @@ contract Gomoku {
 
         game.winner = msg.sender == game.black ? game.white : game.black; // 設定勝者
         payoutStakes(_gameId); // 處理賭注轉移
+    }
+
+    // 建立當緊急停止後 所有放入賭注的人 都可以自由 claim 自己賭注的能力
+    // 給予 game id 之後未被凍結的遊戲 將會平分資金給雙方 並且將遊戲凍結
+    function claimRefund(uint256 _gameId) public {
+        Game storage game = games[_gameId];
+        require(stopped, "Contract is not stopped"); // 檢查是否緊急停止了合約
+        require(game.active && !game.frozen, "Game is not active or already frozen"); // 檢查遊戲是否仍在進行中且未被凍結
+        require(game.stake > 0, "No stakes to claim"); // 檢查是否有賭注可領取
+
+        // 將賭注平分給雙方
+        uint256 amountToRefund = game.stake / 2;
+        address player1 = game.player1;
+        address player2 = game.player2;
+        game.stake = 0; // 重置賭注為 0
+        game.frozen = true; // 凍結遊戲
+        game.active = false; // 標記遊戲為非進行中
+
+        // 轉移賭注給玩家1
+        if (player1 != address(0)) {
+            require(IERC20(tokenAddress).transfer(player1, amountToRefund), "Transfer to player1 failed");
+        }
+
+        // 轉移賭注給玩家2
+        if (player2 != address(0)) {
+            require(IERC20(tokenAddress).transfer(player2, amountToRefund), "Transfer to player2 failed");
+        }
+
+        emit RefundClaimed(_gameId, player1, player2, amountToRefund);
     }
 
     // 緊急停止所有遊戲的函式（僅限擁有者）
