@@ -9,6 +9,9 @@ interface IERC20 {
 contract Gomoku {
     uint256 public gameCount; // 遊戲數量計數
     address public tokenAddress; // 代幣位址
+    address public owner; // 合約擁有者地址
+    bool public stopped = false; // 緊急停止開關
+    mapping(uint256 => Game) public games; // 透過遊戲 ID 映射到遊戲
 
     struct Game {
         address black; // 黑棋玩家位址
@@ -18,13 +21,16 @@ contract Gomoku {
         uint256[15][15] board; // 棋盤：0 表示無棋子，1 表示黑棋，2 表示白棋
         bool turn; // 誰的回合：true 表示黑棋先手
         bool active; // 棋局是否進行中
-        bool waitingForOpponent; // 是否在等待對手加入
+        address creator; // 遊戲創建者
+        address player1; // 參加者1
+        address player2; // 參加者2
+        bool waitingForPlayerJoin; // 是否等待玩家加入
     }
-
-    mapping(uint256 => Game) public games; // 透過遊戲 ID 映射到遊戲
 
     constructor(address _tokenAddress) {
         tokenAddress = _tokenAddress; // 初始化代幣位址
+
+        // 設定擁有者 以用於緊急停止 之後可以透過 遊戲資訊 退費所有餘額
     }
 
     // 更改代幣位址的函式
@@ -43,35 +49,40 @@ contract Gomoku {
             white: address(0),
             stake: _stake,
             winner: address(0),
+            creator: msg.sender,
+            player1: address(0),
+            player2: address(0),
             board: initialBoard,
             turn: true,
             active: false,
-            waitingForOpponent: true
+            waitingForPlayerJoin: true
         });
-
         gameCount++; // 遊戲計數增加
-        return gameCount - 1; // 返回新遊戲的 ID
+        return gameCount - 1; // 返回新遊戲的ID
     }
 
-    // 對手加入遊戲，並隨機分配黑白棋方
+    // 玩家加入遊戲
     function joinGame(uint256 _gameId) public {
         Game storage game = games[_gameId];
-        require(game.waitingForOpponent, "Game is not waiting for an opponent");
+        require(game.waitingForPlayerJoin, "Game is not waiting for players");
         require(IERC20(tokenAddress).transferFrom(msg.sender, address(this), game.stake), "Transfer failed");
 
-        // 隨機分配黑白棋方
-        bool isBlack = (block.timestamp % 2 == 0);
-        if (isBlack) {
-            game.black = msg.sender;
-            game.white = game.black;
+        if (game.player1 == address(0)) {
+            game.player1 = msg.sender; // 設定第一個參加者
         } else {
-            game.white = msg.sender;
-            game.black = game.white;
+            game.player2 = msg.sender; // 設定第二個參加者
+            // 隨機分配黑白棋方
+            bool isBlack = (block.timestamp % 2 == 0);
+            if (isBlack) {
+                game.black = game.player1;
+                game.white = game.player2;
+            } else {
+                game.black = game.player2;
+                game.white = game.player1;
+            }
+            game.active = true; // 啟動遊戲
+            game.waitingForPlayerJoin = false; // 結束等待參加者
         }
-
-        game.stake *= 2; // 更新總賭注數量
-        game.active = true; // 啟動遊戲
-        game.waitingForOpponent = false; // 更新等待對手狀態
     }
 
     // 下棋的函式
