@@ -33,7 +33,7 @@ contract Gomoku {
         Stone[15][15] board; // 棋盤
         bool turn; // 誰的回合：true 表示黑棋先手
         bool active; // 棋局是否進行中
-        bool frozen; // 棋盤是否凍結，賭注清算完畢則凍結
+        bool completed; // 棋盤是否凍結，賭注清算完畢則凍結
         address creator; // 遊戲創建者
         address player1; // 參加者1
         address player2; // 參加者2
@@ -69,9 +69,9 @@ contract Gomoku {
         _;
     }
 
-    // 修飾詞：遊戲未凍結
-    modifier gameNotFrozen(uint256 _gameId) {
-        require(!games[_gameId].frozen, "Game is frozen"); // 檢查遊戲是否已凍結
+    // 修飾詞：遊戲未完成
+    modifier gameNotCompleted(uint256 _gameId) {
+        require(!games[_gameId].completed, "Game is completed"); // 檢查遊戲是否已凍結
         _;
     }
 
@@ -89,7 +89,7 @@ contract Gomoku {
             board: initialBoard,
             turn: true,
             active: false,
-            frozen: false,
+            completed: false,
             waitingForPlayerJoin: true
         });
         gameCount++; // 遊戲計數增加
@@ -98,7 +98,7 @@ contract Gomoku {
     }
 
     // 玩家加入遊戲
-    function joinGame(uint256 _gameId) public stopInEmergency waitingForPlayerJoin(_gameId) gameNotFrozen(_gameId) {
+    function joinGame(uint256 _gameId) public stopInEmergency waitingForPlayerJoin(_gameId) gameNotCompleted(_gameId) {
         Game storage game = games[_gameId]; // 獲取遊戲狀態
         require(IERC20(tokenAddress).transferFrom(msg.sender, address(this), game.stake), "Transfer failed"); // 放入賭注
 
@@ -126,7 +126,7 @@ contract Gomoku {
         public
         stopInEmergency
         gameActive(_gameId)
-        gameNotFrozen(_gameId)
+        gameNotCompleted(_gameId)
     {
         Game storage game = games[_gameId]; // 獲取遊戲狀態
         require(game.board[x][y] == Stone.Empty, "This position is already occupied"); // 檢查位置是否已有棋子
@@ -149,7 +149,7 @@ contract Gomoku {
     }
 
     // 投降的函式
-    function surrender(uint256 _gameId) public stopInEmergency gameActive(_gameId) gameNotFrozen(_gameId) {
+    function surrender(uint256 _gameId) public stopInEmergency gameActive(_gameId) gameNotCompleted(_gameId) {
         Game storage game = games[_gameId]; // 獲取遊戲狀態
         require(msg.sender == game.black || msg.sender == game.white, "You are not a player in this game");
 
@@ -159,10 +159,10 @@ contract Gomoku {
 
     // 建立當緊急停止後 所有放入賭注的人 都可以自由 claim 自己賭注的能力
     // 給予 game id 之後未被凍結的遊戲 將會平分資金給雙方 並且將遊戲凍結
-    function claimRefund(uint256 _gameId) public gameActive(_gameId) gameNotFrozen(_gameId) {
+    function claimRefund(uint256 _gameId) public gameActive(_gameId) gameNotCompleted(_gameId) {
         Game storage game = games[_gameId];
         require(stopped, "Contract is not stopped"); // 檢查是否緊急停止了合約
-        require(game.active && !game.frozen, "Game is not active or already frozen"); // 檢查遊戲是否仍在進行中且未被凍結
+        require(game.active && !game.completed, "Game is not active or already completed"); // 檢查遊戲是否仍在進行中且未被凍結
         require(game.stake > 0, "No stakes to claim"); // 檢查是否有賭注可領取
 
         // 將賭注平分給雙方
@@ -170,7 +170,7 @@ contract Gomoku {
         address player1 = game.player1;
         address player2 = game.player2;
         game.stake = 0; // 重置賭注為 0
-        game.frozen = true; // 凍結遊戲
+        game.completed = true; // 凍結遊戲
         game.active = false; // 標記遊戲為非進行中
 
         // 轉移賭注給玩家1
@@ -197,7 +197,7 @@ contract Gomoku {
     }
 
     // 結束遊戲並處理賭注
-    function payoutStakes(uint256 _gameId) internal stopInEmergency gameActive(_gameId) gameNotFrozen(_gameId) {
+    function payoutStakes(uint256 _gameId) internal stopInEmergency gameActive(_gameId) gameNotCompleted(_gameId) {
         Game storage game = games[_gameId]; // 從遊戲映射中獲取指定 ID 的遊戲狀態
         require(game.winner != address(0), "No winner, unable to settle stakes"); // 確保已經有勝利者，否則無法進行結算
 
@@ -206,7 +206,7 @@ contract Gomoku {
         require(sent, "Stake transfer failed"); // 確認賭注轉移成功，否則拋出錯誤
 
         game.stake = 0; // 將賭注金額重設為 0，以防萬一
-        game.frozen = true; // 將棋盤凍結，避免進一步操作
+        game.completed = true; // 將棋盤凍結，避免進一步操作
         emit GameEnded(_gameId, games[_gameId].winner); // 發送遊戲結束事件
     }
 
