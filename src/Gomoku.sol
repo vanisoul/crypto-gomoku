@@ -159,7 +159,7 @@ contract Gomoku {
 
     // 建立當緊急停止後 所有放入賭注的人 都可以自由 claim 自己賭注的能力
     // 給予 game id 之後未被凍結的遊戲 將會平分資金給雙方 並且將遊戲凍結
-    function claimRefund(uint256 _gameId) public {
+    function claimRefund(uint256 _gameId) public gameActive(_gameId) gameNotFrozen(_gameId) {
         Game storage game = games[_gameId];
         require(stopped, "Contract is not stopped"); // 檢查是否緊急停止了合約
         require(game.active && !game.frozen, "Game is not active or already frozen"); // 檢查遊戲是否仍在進行中且未被凍結
